@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -18,7 +21,7 @@ namespace StockAnalyzer.Windows
             InitializeComponent();
         }
         
-        private void Search_Click(object sender, RoutedEventArgs e)
+        private async void Search_Click(object sender, RoutedEventArgs e)
         {
             #region Before loading stock data
             var watch = new Stopwatch();
@@ -26,21 +29,73 @@ namespace StockAnalyzer.Windows
             StockProgress.Visibility = Visibility.Visible;
             StockProgress.IsIndeterminate = true;
             #endregion
+            CultureInfo cultureInfo = CultureInfo.InvariantCulture;
 
-            var client = new WebClient();
+            var loadAllLines = await Task.Run(() =>
+            {
+                var lines = File.ReadAllLines(@"D:\Demo\StockPrices.csv");
+                return lines;
+            });
 
-            var content = client.DownloadString($"http://localhost:61363/api/stocks/{Ticker.Text}");
+            var data = new List<StockPrice>();
 
-            var data = JsonConvert.DeserializeObject<IEnumerable<StockPrice>>(content);
+            foreach (var line in lines.Skip(1))
+            {
+                var segments = line.Split(',');
+                DateTime dateTime10 = DateTime.Now;
 
-            Stocks.ItemsSource = data;
+                for (var i = 0; i < segments.Length; i++) segments[i] = segments[i].Trim('\'', '"');
+                bool isSuccess = DateTime.TryParse(segments[1], out dateTime10);
+                var price = new StockPrice
+                {
+                    Ticker = segments[0],
+                    TradeDate = isSuccess ? dateTime10 : DateTime.Now,
+                    Volume = Convert.ToInt32(segments[6]),
+                    Change = Convert.ToDouble(segments[7], cultureInfo),
+                    ChangePercent = Convert.ToDouble(segments[8], cultureInfo),
+                };
+                data.Add(price);
+            }
+
+
+
+            Dispatcher.Invoke(() =>
+            {
+                Stocks.ItemsSource = data.Where(price => price.Ticker == Ticker.Text);
+
+            });
+
 
             #region After stock data is loaded
             StocksStatus.Text = $"Loaded stocks for {Ticker.Text} in {watch.ElapsedMilliseconds}ms";
             StockProgress.Visibility = Visibility.Hidden;
             #endregion
         }
-                
+
+        public async Task GetStocks()
+        {
+            using (var client = new HttpClient())
+            {
+                var httpResponse = await client.GetAsync($"http://localhost:61363/api/stocks/{Ticker.Text}");
+
+                try
+                {
+                    httpResponse.EnsureSuccessStatusCode();
+
+                    var content = await httpResponse.Content.ReadAsStringAsync();
+
+                    var data = JsonConvert.DeserializeObject<IEnumerable<StockPrice>>(content);
+
+                    Stocks.ItemsSource = data;
+
+                }
+                catch (Exception ex)
+                {
+                    Notes.Text += ex.Message;
+                }
+            }
+        }
+
         private void Hyperlink_OnRequestNavigate(object sender, RequestNavigateEventArgs e)
         {
             Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri));

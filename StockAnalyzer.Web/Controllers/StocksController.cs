@@ -16,7 +16,7 @@ namespace StockAnalyzer.Web.Controllers
         public async Task<IHttpActionResult> Get(string ticker)
         {
             var store = new DataStore();
-
+            Thread.Sleep(3000);
             var data = await store.LoadStocks();
 
             if (!data.ContainsKey(ticker)) return NotFound();
